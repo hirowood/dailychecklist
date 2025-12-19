@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>日常チェック記録（ローカルストレージ）</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; margin: 0; padding: 24px; line-height: 1.55; }
+    .wrap { max-width: 820px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    .muted { opacity: .75; }
+    .card { border: 1px solid rgba(127,127,127,.35); border-radius: 14px; padding: 14px; margin: 12px 0; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row > * { flex: 1; }
+    input[type="text"] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(127,127,127,.35); }
+    button { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(127,127,127,.35); background: transparent; cursor: pointer; }
+    button:hover { filter: brightness(1.08); }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 10px 8px; border-top: 1px solid rgba(127,127,127,.2); }
+    li:first-child { border-top: none; }
+    .label { font-weight: 600; }
+    .ts { font-size: 12px; opacity: .75; }
+    .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(127,127,127,.35); opacity: .85; }
+    .danger { border-color: rgba(255,127,127,.6); }
+    details { margin-top: 10px; }
+    pre { white-space: pre-wrap; word-break: break-word; padding: 10px; border-radius: 12px; border: 1px solid rgba(127,127,127,.2); }
+    .footer { margin-top: 18px; font-size: 12px; opacity: .75; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>日常チェック記録（ローカルストレージ）</h1>
+    <div class="muted">チェックONで「日時を記録」／OFFで「日時を消去」。追加項目も保存されます。</div>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label class="muted" for="newItem">新しい項目</label>
+          <input id="newItem" type="text" placeholder="例：ガスの元栓 / エアコンOFF / 充電器を抜く など" />
+        </div>
+        <div style="flex:0 0 auto; display:flex; gap:8px; align-items:end;">
+          <button id="addBtn" title="項目を追加">追加</button>
+          <button id="resetBtn" class="danger" title="全項目のチェック日時を消去（項目自体は残す）">全解除</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <ul id="list"></ul>
+
+      <details>
+        <summary>ローカルストレージ（保存データ）を表示</summary>
+        <pre id="debug"></pre>
+        <div class="footer">保存先キー：<code>dailyChecklist.v1</code>（このHTMLを閉じても残ります）</div>
+      </details>
+    </div>
+
+    <div class="footer">
+      使い方：このファイルを <code>.html</code> として保存して、ブラウザで開くだけ。
+    </div>
+  </div>
+
+<script>
+(() => {
+  const STORAGE_KEY = "dailyChecklist.v1";
+
+  /** @typedef {{id:string, label:string, checkedAt:string|null, createdAt:string}} Item */
+
+  // ---- storage ----
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.items)) return null;
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function save(state) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state, null, 2));
+  }
+
+  // ---- init ----
+  const defaultItems = [
+    { id: crypto.randomUUID(), label: "鍵の施錠", checkedAt: null, createdAt: new Date().toISOString() },
+    { id: crypto.randomUUID(), label: "窓の施錠", checkedAt: null, createdAt: new Date().toISOString() },
+    { id: crypto.randomUUID(), label: "部屋の消灯", checkedAt: null, createdAt: new Date().toISOString() },
+  ];
+
+  /** @type {{version:number, items:Item[]}} */
+  let state = load() ?? { version: 1, items: defaultItems };
+  save(state); // 初回でも必ず記録（仕様：ローカルストレージに内容を記録）
+
+  // ---- dom ----
+  const $list = document.getElementById("list");
+  const $debug = document.getElementById("debug");
+  const $newItem = document.getElementById("newItem");
+  const $addBtn = document.getElementById("addBtn");
+  const $resetBtn = document.getElementById("resetBtn");
+
+  function fmt(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    // 例：2025/12/19 21:33:12
+    return isNaN(d.getTime()) ? "" : d.toLocaleString();
+  }
+
+  function render() {
+    $list.innerHTML = "";
+    for (const item of state.items) {
+      const li = document.createElement("li");
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!item.checkedAt;
+      cb.ariaLabel = item.label;
+
+      cb.addEventListener("change", () => {
+        if (cb.checked) {
+          item.checkedAt = new Date().toISOString(); // ONなら新しい日時を記録
+        } else {
+          item.checkedAt = null; // OFFなら日時を消去
+        }
+        save(state);
+        render();
+      });
+
+      const mid = document.createElement("div");
+      const label = document.createElement("div");
+      label.className = "label";
+      label.textContent = item.label;
+
+      const ts = document.createElement("div");
+      ts.className = "ts";
+      ts.textContent = item.checkedAt ? `記録：${fmt(item.checkedAt)}` : "未チェック（日時なし）";
+
+      mid.appendChild(label);
+      mid.appendChild(ts);
+
+      const right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.gap = "8px";
+      right.style.justifyContent = "flex-end";
+      right.style.alignItems = "center";
+
+      if (item.checkedAt) {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = "checked";
+        right.appendChild(pill);
+      }
+
+      // （任意機能）項目削除：要件にはないが便利なので付ける。不要なら消してOK
+      const del = document.createElement("button");
+      del.textContent = "削除";
+      del.className = "danger";
+      del.title = "この項目を削除";
+      del.addEventListener("click", () => {
+        state.items = state.items.filter(x => x.id !== item.id);
+        save(state);
+        render();
+      });
+      right.appendChild(del);
+
+      li.appendChild(cb);
+      li.appendChild(mid);
+      li.appendChild(right);
+      $list.appendChild(li);
+    }
+
+    // debug
+    $debug.textContent = localStorage.getItem(STORAGE_KEY) ?? "";
+  }
+
+  function addItem() {
+    const label = ($newItem.value || "").trim();
+    if (!label) return;
+    // 同名を避けたい場合はここでチェック（要件外なので軽めに）
+    const newOne = { id: crypto.randomUUID(), label, checkedAt: null, createdAt: new Date().toISOString() };
+    state.items.unshift(newOne);
+    $newItem.value = "";
+    save(state);
+    render();
+  }
+
+  $addBtn.addEventListener("click", addItem);
+  $newItem.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addItem();
+  });
+
+  $resetBtn.addEventListener("click", () => {
+    state.items.forEach(it => it.checkedAt = null);
+    save(state);
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
